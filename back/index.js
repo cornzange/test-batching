@@ -11,12 +11,19 @@ const allItems = new Set();
 const selectedSet = new Set();
 let selectedItems = [];
 
-for (let i = 1; i <= 1_000_000; i++) allItems.add(i);
+let nextId = 1;
+
+for (; nextId <= 1_000_000; nextId++) {
+  allItems.add(nextId);
+}
 
 /* ================= QUEUE ================= */
 
 const queue = [];
+const queueAdd = [];
+
 const dedupe = new Set();
+const dedupeAdd = new Set();
 
 function enqueue(action) {
   if (dedupe.has(action.key)) return;
@@ -24,7 +31,13 @@ function enqueue(action) {
   queue.push(action);
 }
 
-/* ===== APPLY QUEUE ===== */
+function enqueueAdd(action) {
+  if (dedupeAdd.has(action.key)) return;
+  dedupeAdd.add(action.key);
+  queueAdd.push(action);
+}
+
+/* ================= APPLY ================= */
 
 function apply(action) {
   if (action.type === 'SELECT') {
@@ -37,10 +50,6 @@ function apply(action) {
   if (action.type === 'DESELECT') {
     selectedSet.delete(action.id);
     selectedItems = selectedItems.filter(i => i !== action.id);
-  }
-
-  if (action.type === 'ADD') {
-    allItems.add(action.id);
   }
 
   if (action.type === 'REORDER') {
@@ -57,6 +66,17 @@ setInterval(() => {
   broadcastState();
 }, 1000);
 
+setInterval(() => {
+  const batch = queueAdd.splice(0);
+  if (batch.length !== 0) {
+    batch.forEach(a => {
+      allItems.add(a.id);
+      dedupeAdd.delete(a.key);
+    });
+    broadcastState();
+  }
+}, 10000);
+
 /* ================= WS ================= */
 
 const server = app.listen(3001);
@@ -66,12 +86,16 @@ function send(ws, data) {
   ws.send(JSON.stringify(data));
 }
 
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
+}
+
 function broadcastState() {
-  const msg = JSON.stringify({
+  broadcast({
     type: 'STATE',
     selectedItems
   });
-  wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
 }
 
 function getItems(type, search, offset) {
@@ -85,6 +109,8 @@ function getItems(type, search, offset) {
     .slice(offset, offset + 20);
 }
 
+/* ================= CONNECTION ================= */
+
 wss.on('connection', ws => {
   send(ws, { type: 'STATE', selectedItems });
 
@@ -96,6 +122,7 @@ wss.on('connection', ws => {
         type: 'ITEMS',
         list: msg.list,
         offset: msg.offset,
+        search: msg.search,
         items: getItems(msg.list, msg.search, msg.offset)
       });
     }
@@ -107,7 +134,7 @@ wss.on('connection', ws => {
       enqueue({ key: `D_${msg.id}`, type: 'DESELECT', id: msg.id });
 
     if (msg.type === 'ADD')
-      enqueue({ key: `A_${msg.id}`, type: 'ADD', id: msg.id });
+      enqueueAdd({ key: `A_${msg.id}`, type: 'ADD', id: msg.id });
 
     if (msg.type === 'REORDER')
       enqueue({ key: 'R', type: 'REORDER', orderedIds: msg.orderedIds });

@@ -1,26 +1,47 @@
-import { DndContext, type DragEndEvent } from '@dnd-kit/core';
-import { arrayMove } from '@dnd-kit/sortable';
+import { DndContext, type DragEndEvent, closestCenter } from '@dnd-kit/core';
+import { useState } from 'react';
+import {
+    SortableContext,
+    useSortable,
+    verticalListSortingStrategy,
+    arrayMove,
+} from '@dnd-kit/sortable';
+import { SortableItem } from './SortableItem';
 
-export default function RightList({ items, send, setItems }: { items: number[], send: (msg: any) => void, setItems: (items: number[]) => void }) {
+export default function RightList({ items, send, setItems }: { items: number[], send: (msg: any) => void, setItems: any }) {
+    const [search, setSearch] = useState('');
+    function handleDragEnd(event: any) {
+        const { active, over } = event;
 
-    function onDragEnd(e: DragEndEvent) {
-        if (!e.over) return;
-        const oldIndex = items.indexOf(e.active.id as number);
-        const newIndex = items.indexOf(e.over.id as number);
-        const next = arrayMove(items, oldIndex, newIndex);
-        setItems(next);
-        send({ type: 'REORDER', orderedIds: next });
+        if (!over) return;
+
+        if (active.id !== over.id) {
+            setItems((items: any) => {
+                const oldIndex = items.indexOf(active.id);
+                const newIndex = items.indexOf(over.id);
+                const newOrder = arrayMove<number>(items, oldIndex, newIndex);
+                send({ type: 'REORDER', orderedIds: newOrder });
+                return newOrder
+            });
+
+        }
     }
+    return (<>
+        <h3>Right</h3>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} />
 
-    return (
-        <DndContext onDragEnd={onDragEnd}>
-            <h3>Right</h3>
-            {items.map(id => (
-                <div key={id}>
-                    {id}
-                    <button onClick={() => send({ type: 'DESELECT', id })}>x</button>
-                </div>
-            ))}
-        </DndContext>
+        <div style={{ height: 300, overflow: 'auto' }}>
+            <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+            >
+                <SortableContext items={items} strategy={verticalListSortingStrategy}>
+                    {items.map((id) => (
+                        <SortableItem key={id} id={id} />
+                    ))}
+                </SortableContext>
+            </DndContext>
+        </div>
+    </>
     );
 }

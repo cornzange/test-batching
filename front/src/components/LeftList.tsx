@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 
-export default function LeftList({ items, send, selectedItems }: { items: number[], send: (msg: any) => void, selectedItems: number[] }) {
-    const [search, setSearch] = useState('');
+type Props = {
+    items: number[],
+    send: (msg: any) => void,
+    selectedItems: number[],
+    search: string,
+    setSearch: (search: string) => void
+}
+export default function LeftList({ items, send, selectedItems, search, setSearch }: Props) {
     const [offset, setOffset] = useState(0);
 
     useEffect(() => {
-        // setItems([])
-        // setOffset(0)
         load(true)
     }, [search]);
 
