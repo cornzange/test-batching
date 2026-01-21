@@ -26,7 +26,11 @@ export default function RightList({ items, send, setItems }: { items: number[], 
 
         }
     }
-    return (<>
+    const deselect = (id: number) => {
+        send({ type: 'DESELECT', id })
+    }
+    const filteredItems = items.filter(item => item.toString().includes(search))
+    return (<div>
         <h3>Right</h3>
         <input value={search} onChange={(e) => setSearch(e.target.value)} />
 
@@ -36,12 +40,15 @@ export default function RightList({ items, send, setItems }: { items: number[], 
                 onDragEnd={handleDragEnd}
             >
                 <SortableContext items={items} strategy={verticalListSortingStrategy}>
-                    {items.map((id) => (
-                        <SortableItem key={id} id={id} />
+                    {filteredItems.map((id) => (
+                        <div style={{ display: "flex" }}>
+                            <SortableItem key={id} id={id} />
+                            <button onClick={() => deselect(id)}>-</button>
+                        </div>
                     ))}
                 </SortableContext>
             </DndContext>
         </div>
-    </>
+    </div>
     );
 }

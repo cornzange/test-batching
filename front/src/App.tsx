@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import LeftList from './components/LeftList';
 import RightList from './components/RightList';
 import { socket } from './socket';
+import Popup from './components/Popup';
 
 const mergeUnique = (a: number[], b: number[]) => Array.from(new Set([...a, ...b]));
 
@@ -9,6 +10,7 @@ export default function App() {
   const [leftItems, setLeftItems] = useState<number[]>([])
   const [rightItems, setRightItems] = useState<number[]>([])
   const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!socket) return;
@@ -37,10 +39,19 @@ export default function App() {
   const send = (msg: any) => {
     socket.send(JSON.stringify(msg));
   };
-  return (
+
+  const addElement = (id: number) => {
+    send({ type: 'ADD', id })
+  }
+
+  return (<div>
+    <button onClick={() => setOpen(true)}>Add element</button>
     <div style={{ display: 'flex', gap: 20, padding: 20 }}>
-      {socket.readyState === WebSocket.OPEN ? <LeftList items={leftItems} selectedItems={rightItems} send={send} search={search} setSearch={setSearch} /> : "connecting"}
+      <Popup isOpen={open} onClose={() => setOpen(false)} onSubmit={(id: number) => addElement(id)} />
+      {socket.readyState === WebSocket.OPEN ? <LeftList items={leftItems} selectedItems={rightItems} send={send} search={search} setSearch={setSearch} setOpen={setOpen} /> : "connecting"}
       {socket.readyState === WebSocket.OPEN ? <RightList items={rightItems} send={send} setItems={setRightItems} /> : "connecting"}
     </div>
+  </div>
+
   );
 }

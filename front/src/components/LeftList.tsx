@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { debounce, throttle } from '../utils';
 
 type Props = {
     items: number[],
@@ -6,48 +7,66 @@ type Props = {
     selectedItems: number[],
     search: string,
     setSearch: (search: string) => void
+    setOpen: (flag: boolean) => void
 }
-export default function LeftList({ items, send, selectedItems, search, setSearch }: Props) {
+export default function LeftList({ items, send, selectedItems, search, setSearch, setOpen }: Props) {
     const [offset, setOffset] = useState(0);
 
+    // Keep latest search in a ref to avoid stale closures inside throttled handler
+    const searchRef = useRef(search);
     useEffect(() => {
-        load(true)
+        searchRef.current = search;
+    }, [search]);
+
+    useEffect(() => {
+        // when search changes, trigger initial load with zero offset
+        load(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [search]);
 
     function load(isZeroOffset = false) {
-        const next = offset + 20;
-        setOffset(next);
-        send({ type: 'FETCH', list: 'left', search, offset: isZeroOffset ? 0 : next });
+        if (isZeroOffset) {
+            setOffset(0);
+            send({ type: 'FETCH', list: 'left', search: searchRef.current, offset: 0 });
+            return;
+        }
+        // Use functional update so we don't depend on captured "offset"
+        setOffset(prev => {
+            const next = prev + 20;
+            send({ type: 'FETCH', list: 'left', search: searchRef.current, offset: next });
+            return next;
+        });
     }
 
     const LOAD_THRESHOLD = 150;
 
-    function handleScroll(e: React.UIEvent<HTMLDivElement>) {
+    // Create throttled scroll handler once. It reads latest search via ref and uses
+    // functional setState, so it remains correct across renders.
+    const throttledHandleScroll = useMemo(() => throttle((e: React.UIEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
-
-        const distanceToBottom =
-            el.scrollHeight - el.scrollTop - el.clientHeight;
-
+        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
         if (distanceToBottom < LOAD_THRESHOLD) {
             load();
         }
-    }
+    }, 500), []);
 
     const filteredItems = items.filter(item => !selectedItems.includes(item))
 
     const handleSearch = (e: any) => {
-        setSearch(e.target.value)
-        setOffset(0)
-        send({ type: 'FETCH', list: 'left', search, offset: 0 });
+        const value = e.target.value;
+        setSearch(value);
+        setOffset(0);
+        // Use ref to ensure the dispatched search matches the input value immediately
+        searchRef.current = value;
+        send({ type: 'FETCH', list: 'left', search: value, offset: 0 });
     }
 
     return (
         <div>
             <h3>Left</h3>
             <input value={search} onChange={handleSearch} />
-            <button onClick={() => send({ type: 'ADD', id: Date.now() })}>Add</button>
 
-            <div onScroll={handleScroll} style={{ height: 300, overflow: 'auto' }}>
+            <div onScroll={throttledHandleScroll} style={{ height: 300, overflow: 'auto' }}>
                 {filteredItems.map(id => (
                     <div key={id}>
                         {id}

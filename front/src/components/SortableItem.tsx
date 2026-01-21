@@ -11,8 +11,8 @@ export function SortableItem({ id }: { id: number }) {
     };
 
     return (
-        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            Элемент {id}
-        </div>
+        <p ref={setNodeRef} style={style} {...attributes} {...listeners}>
+            {id}
+        </p>
     );
 }
