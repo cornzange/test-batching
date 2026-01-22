@@ -118,7 +118,7 @@ function getPage(list, search, page) {
 
 /* ================= WS ================= */
 
-const server = app.listen(3001);
+const server = app.listen(process.env.PORT || 3001);
 const wss = new WebSocket.Server({ server });
 
 function send(ws, data) {
@@ -213,4 +213,4 @@ wss.on('connection', ws => {
   });
 });
 
-console.log('WS backend (prefix hash aware) on :3001');
+console.log('WS backend (prefix hash aware)', process.env.PORT || 3001);
