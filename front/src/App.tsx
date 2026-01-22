@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import LeftList from './components/LeftList';
 import RightList from './components/RightList';
 import Popup from './components/Popup';
-import { socket } from './socket';
 
 /* ================= TYPES ================= */
 
@@ -67,7 +66,7 @@ export default function App() {
   /* ================= WS ================= */
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:3001');
+    const ws = new WebSocket('wss://test-batching.onrender.com');
     setSocket(ws);
     const onOpen = () => setConnected(true);
     const onClose = () => setConnected(false);
