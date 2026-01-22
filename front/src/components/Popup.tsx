@@ -15,20 +15,19 @@ const styles: Record<string, React.CSSProperties> = {
         justifyContent: "center",
     },
     popup: {
-        background: "#fff",
+        background: "gray",
         padding: 20,
         borderRadius: 8,
         minWidth: 300,
     },
     input: {
-        width: "100%",
         padding: 8,
         marginBottom: 12,
     },
     buttons: {
         display: "flex",
         gap: 8,
-        justifyContent: "flex-end",
+        justifyContent: "flex-start",
     },
 };
 

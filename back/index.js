@@ -1,9 +1,23 @@
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
+const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
+
+/* ================= CONFIG ================= */
+
+const PAGE_SIZE = 20;
+
+/* ================= HASH ================= */
+
+function hash(data) {
+  return crypto
+    .createHash('sha1')
+    .update(JSON.stringify(data))
+    .digest('hex');
+}
 
 /* ================= DATA ================= */
 
@@ -11,71 +25,96 @@ const allItems = new Set();
 const selectedSet = new Set();
 let selectedItems = [];
 
-let nextId = 1;
-
-for (; nextId <= 1_000_000; nextId++) {
-  allItems.add(nextId);
+for (let i = 1; i <= 1_000_000; i++) {
+  allItems.add(i);
 }
 
-/* ================= QUEUE ================= */
+/* ================= QUEUES ================= */
 
-const queue = [];
-const queueAdd = [];
+const actionQueue = [];
+const addQueue = [];
 
-const dedupe = new Set();
-const dedupeAdd = new Set();
+const actionDedupe = new Set();
+const addDedupe = new Set();
 
 function enqueue(action) {
-  if (dedupe.has(action.key)) return;
-  dedupe.add(action.key);
-  queue.push(action);
+  if (actionDedupe.has(action.key)) return;
+  actionDedupe.add(action.key);
+  actionQueue.push(action);
 }
 
 function enqueueAdd(action) {
-  if (dedupeAdd.has(action.key)) return;
-  dedupeAdd.add(action.key);
-  queueAdd.push(action);
+  if (addDedupe.has(action.key)) return;
+  addDedupe.add(action.key);
+  addQueue.push(action);
 }
 
 /* ================= APPLY ================= */
 
-function apply(action) {
-  if (action.type === 'SELECT') {
-    if (!selectedSet.has(action.id) && allItems.has(action.id)) {
-      selectedSet.add(action.id);
-      selectedItems.push(action.id);
-    }
-  }
+function applyAction(action) {
+  switch (action.type) {
+    case 'SELECT':
+      if (!selectedSet.has(action.id) && allItems.has(action.id)) {
+        selectedSet.add(action.id);
+        selectedItems.push(action.id);
+      }
+      break;
 
-  if (action.type === 'DESELECT') {
-    selectedSet.delete(action.id);
-    selectedItems = selectedItems.filter(i => i !== action.id);
-  }
+    case 'DESELECT':
+      selectedSet.delete(action.id);
+      selectedItems = selectedItems.filter(i => i !== action.id);
+      break;
 
-  if (action.type === 'REORDER') {
-    selectedItems = action.orderedIds.filter(id => selectedSet.has(id));
+    case 'REORDER':
+      selectedItems = action.orderedIds.filter(id => selectedSet.has(id));
+      break;
   }
 }
 
-setInterval(() => {
-  const batch = queue.splice(0);
-  batch.forEach(a => {
-    apply(a);
-    dedupe.delete(a.key);
-  });
-  broadcastState();
-}, 1000);
+/* ===== SELECT / DESELECT / REORDER — 1s ===== */
 
 setInterval(() => {
-  const batch = queueAdd.splice(0);
-  if (batch.length !== 0) {
-    batch.forEach(a => {
-      allItems.add(a.id);
-      dedupeAdd.delete(a.key);
-    });
-    broadcastState();
-  }
-}, 10000);
+  const batch = actionQueue.splice(0);
+  if (!batch.length) return;
+
+  batch.forEach(a => {
+    applyAction(a);
+    actionDedupe.delete(a.key);
+  });
+
+  notifyUpdate('left');
+  notifyUpdate('right');
+}, 1_000);
+
+/* ===== ADD — 10s ===== */
+
+setInterval(() => {
+  const batch = addQueue.splice(0);
+  if (!batch.length) return;
+
+  batch.forEach(a => {
+    allItems.add(a.id);
+    addDedupe.delete(a.key);
+  });
+
+  notifyUpdate('left');
+}, 10_000);
+
+/* ================= LIST HELPERS ================= */
+
+function getList(list, search = '') {
+  const src =
+    list === 'left'
+      ? [...allItems].filter(i => !selectedSet.has(i))
+      : selectedItems;
+
+  return src.filter(i => i.toString().includes(search));
+}
+
+function getPage(list, search, page) {
+  const from = page * PAGE_SIZE;
+  return getList(list, search).slice(from, from + PAGE_SIZE);
+}
 
 /* ================= WS ================= */
 
@@ -88,44 +127,73 @@ function send(ws, data) {
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
-  wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
+  wss.clients.forEach(
+    c => c.readyState === WebSocket.OPEN && c.send(msg)
+  );
 }
 
-function broadcastState() {
+/* ================= NOTIFY ================= */
+
+function notifyUpdate(list) {
   broadcast({
-    type: 'STATE',
-    selectedItems
+    type: 'LIST_UPDATED',
+    list
   });
-}
-
-function getItems(type, search, offset) {
-  const src =
-    type === 'left'
-      ? [...allItems].filter(i => !selectedSet.has(i))
-      : selectedItems;
-
-  return src
-    .filter(i => i.toString().includes(search))
-    .slice(offset, offset + 20);
 }
 
 /* ================= CONNECTION ================= */
 
 wss.on('connection', ws => {
-  send(ws, { type: 'STATE', selectedItems });
-
   ws.on('message', raw => {
     const msg = JSON.parse(raw.toString());
+
+    /* ===== PAGE FETCH ===== */
 
     if (msg.type === 'FETCH') {
       send(ws, {
         type: 'ITEMS',
         list: msg.list,
-        offset: msg.offset,
+        page: msg.page,
         search: msg.search,
-        items: getItems(msg.list, msg.search, msg.offset)
+        items: getPage(msg.list, msg.search, msg.page)
       });
     }
+
+    /* ===== FULL HASH CHECK (PREFIX-BASED) ===== */
+    if (msg.type === 'CHECK_HASH') {
+      const full = getList(msg.list, msg.search);
+
+      const prefix = full.slice(0, msg.count);
+      const serverHash = hash(prefix);
+
+      send(ws, {
+        type: 'HASH_RESULT',
+        list: msg.list,
+        same: serverHash === msg.hash,
+        total: full.length,
+        search: msg.search,
+        pages: Math.ceil(full.length / PAGE_SIZE)
+      });
+    }
+
+    /* ===== PAGE HASH CHECK ===== */
+
+    if (msg.type === 'CHECK_PAGE') {
+      const { list, search, page, hash: clientHash } = msg;
+      const pageData = getPage(list, search, page);
+      const serverHash = hash(pageData);
+
+      if (serverHash !== clientHash) {
+        send(ws, {
+          type: 'PAGE_DATA',
+          list,
+          page,
+          items: pageData
+        });
+      }
+    }
+
+    /* ===== ACTIONS ===== */
 
     if (msg.type === 'SELECT')
       enqueue({ key: `S_${msg.id}`, type: 'SELECT', id: msg.id });
@@ -133,12 +201,16 @@ wss.on('connection', ws => {
     if (msg.type === 'DESELECT')
       enqueue({ key: `D_${msg.id}`, type: 'DESELECT', id: msg.id });
 
+    if (msg.type === 'REORDER')
+      enqueue({
+        key: 'R',
+        type: 'REORDER',
+        orderedIds: msg.orderedIds
+      });
+
     if (msg.type === 'ADD')
       enqueueAdd({ key: `A_${msg.id}`, type: 'ADD', id: msg.id });
-
-    if (msg.type === 'REORDER')
-      enqueue({ key: 'R', type: 'REORDER', orderedIds: msg.orderedIds });
   });
 });
 
-console.log('WS backend on :3001');
+console.log('WS backend (prefix hash aware) on :3001');
